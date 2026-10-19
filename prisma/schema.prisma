@@ -1,0 +1,88 @@
+// ============================================================
+//  Prisma Schema —— 电子书借阅管理系统
+//  数据库：Neon PostgreSQL
+//
+//  使用说明：
+//  1. 确认环境变量 DATABASE_URL 已配置（见 .env.local）
+//  2. 生成迁移并应用到数据库：npx prisma migrate dev --name init
+//  3. 生成 Prisma Client：npx prisma generate
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+//  枚举类型
+// ============================================================
+
+// 用户角色
+enum Role {
+  USER // 普通读者
+  ADMIN // 管理员
+}
+
+// 借阅状态
+enum LoanStatus {
+  BORROWED // 借阅中
+  RETURNED // 已归还
+  OVERDUE // 已逾期
+}
+
+// ============================================================
+//  数据模型
+// ============================================================
+
+// 用户表
+model User {
+  id        String   @id @default(cuid()) // 主键
+  email     String   @unique // 邮箱（唯一，用于登录）
+  name      String // 姓名
+  password  String // 密码（使用 bcrypt 加密后存储，不存明文）
+  role      Role     @default(USER) // 角色：默认普通读者
+  createdAt DateTime @default(now()) // 注册时间
+
+  loans Loan[] // 该用户的所有借阅记录
+}
+
+// 图书表
+model Book {
+  id              String   @id @default(cuid()) // 主键
+  title           String // 书名
+  author          String // 作者
+  isbn            String   @unique // ISBN 编号（唯一）
+  description     String? // 内容简介（可空）
+  coverUrl        String? // 封面图片地址（存储在 Vercel Blob，可空）
+  totalCopies     Int // 总库存（该书的馆藏总数）
+  availableCopies Int // 可借库存（当前还可借出的数量）
+  createdAt       DateTime @default(now()) // 上架时间
+
+  loans Loan[] // 该书的借阅记录
+
+  // 说明：availableCopies 始终满足 0 <= availableCopies <= totalCopies，
+  // 该约束在业务逻辑（借阅/归还/上架接口）中保证，Prisma 层面不做校验。
+}
+
+// 借阅记录表
+model Loan {
+  id         String     @id @default(cuid()) // 主键
+  bookId     String // 关联图书 ID
+  userId     String // 关联读者 ID
+  borrowDate DateTime   @default(now()) // 借出时间
+  dueDate    DateTime // 应还时间
+  returnDate DateTime? // 实际归还时间（null 表示尚未归还）
+  status     LoanStatus @default(BORROWED) // 借阅状态
+
+  // 关联关系：删除图书/用户时，级联删除其借阅记录
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 常用查询索引（按用户、按图书查借阅记录）
+  @@index([userId])
+  @@index([bookId])
+}
